@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>MindfulWill Meal Planner</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Nunito+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{background:#f4f1ec;min-height:100vh}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState}=React;
+
+/* ═══════════════ INGREDIENT HELPERS ═══════════════ */
+function parseIng(str){
+  const m=str.match(/^([\d./]+)\s*(oz|g|cup|cups|tbsp|tsp|lb|lbs|scoop|scoops|slice|slices|large|medium|small|clove|cloves|dash|pinch|)\s*(.*)/i);
+  if(!m)return{qty:0,unit:"",name:str};
+  let qty=m[1].includes('/')?m[1].split('/').reduce((a,b)=>+a/+b):+m[1];
+  return{qty,unit:m[2].toLowerCase(),name:m[3].trim()||m[2]};
+}
+function roundQty(n,isInt,unit){
+  if(isInt)return Math.max(1,Math.round(n));
+  if(unit==="g")return n>=50?Math.round(n/5)*5:Math.round(n);
+  return n;
+}
+function fmtQty(n,isInt,unit){
+  n=roundQty(n,isInt,unit);
+  if(isInt||unit==="g")return Math.round(n)+"";
+  if(n>=1){n=Math.round(n*4)/4;const r=n%1;if(Math.abs(r)<.05)return Math.round(n)+"";if(Math.abs(r-.25)<.05)return(Math.floor(n)>0?Math.floor(n)+" ":"")+"1/4";if(Math.abs(r-.5)<.05)return(Math.floor(n)>0?Math.floor(n)+" ":"")+"1/2";if(Math.abs(r-.75)<.05)return(Math.floor(n)>0?Math.floor(n)+" ":"")+"3/4";return n.toFixed(1);}
+  return(Math.round(n*10)/10)+"";
+}
+function scaleIng(ingredients,intFlags,scale){
+  if(Math.abs(scale-1)<.04)return ingredients.map(i=>i);
+  return ingredients.map((ing,idx)=>{const p=parseIng(ing);if(!p.qty)return ing;let nq=p.qty*scale;return fmtQty(nq,intFlags[idx],p.unit)+(p.unit?" "+p.unit:"")+" "+p.name;});
+}
+
+/* ═══════════════ MEAL DATABASE ═══════════════ */
+const DB=[
+{id:"b1",name:"Scrambled Eggs & Oats",types:["Breakfast"],cal:480,p:32,f:18,c:46,ingredients:["4 large eggs","60 g rolled oats","1 medium banana","1 tsp coconut oil"],intFlags:[true,false,true,false],tags:["vegetarian","gluten-free"],cat:"breakfast",minS:.75,maxS:1.3},
+{id:"b2",name:"Protein Pancakes",types:["Breakfast"],cal:420,p:35,f:10,c:48,ingredients:["1 scoop whey protein","40 g rolled oats","2 large eggs","75 g blueberries","cooking spray"],intFlags:[true,false,true,false,false],tags:["vegetarian"],cat:"breakfast",minS:.8,maxS:1.3},
+{id:"b3",name:"Greek Yogurt Power Bowl",types:["Breakfast"],cal:400,p:36,f:12,c:40,ingredients:["240 g nonfat Greek yogurt","30 g granola","1 tbsp honey","20 g almonds","75 g mixed berries"],intFlags:[false,false,false,false,false],tags:["vegetarian","gluten-free"],cat:"breakfast",minS:.8,maxS:1.4},
+{id:"b4",name:"Egg White & Turkey Wrap",types:["Breakfast"],cal:380,p:34,f:10,c:38,ingredients:["6 large egg whites","85 g turkey deli slices","1 large whole wheat tortilla","1/4 avocado","2 tbsp salsa"],intFlags:[true,false,true,false,false],tags:[],cat:"breakfast",minS:.8,maxS:1.3},
+{id:"b5",name:"Overnight Oats",types:["Breakfast"],cal:440,p:30,f:14,c:50,ingredients:["60 g rolled oats","1 scoop whey protein","1 cup unsweetened almond milk","1 tbsp peanut butter","1 medium banana"],intFlags:[false,true,false,false,true],tags:["vegetarian"],cat:"breakfast",minS:.8,maxS:1.3},
+{id:"b6",name:"Cottage Cheese & Fruit",types:["Breakfast"],cal:350,p:32,f:8,c:38,ingredients:["340 g low-fat cottage cheese","150 g pineapple chunks","20 g walnuts","1 tsp cinnamon"],intFlags:[false,false,false,false],tags:["vegetarian","gluten-free"],cat:"breakfast",minS:.8,maxS:1.4},
+{id:"b7",name:"Breakfast Burrito",types:["Breakfast"],cal:520,p:38,f:18,c:48,ingredients:["4 large egg whites","2 large whole eggs","85 g ground turkey","1 large whole wheat tortilla","2 tbsp shredded cheese","2 tbsp salsa"],intFlags:[true,true,false,true,false,false],tags:[],cat:"breakfast",minS:.75,maxS:1.2},
+{id:"b8",name:"Oatmeal & Egg Whites",types:["Breakfast"],cal:390,p:30,f:8,c:52,ingredients:["80 g rolled oats","6 large egg whites","1 tbsp honey","75 g strawberries","1 tsp cinnamon"],intFlags:[false,true,false,false,false],tags:["vegetarian"],cat:"breakfast",minS:.8,maxS:1.3},
+{id:"b9",name:"Tofu Scramble & Toast",types:["Breakfast"],cal:380,p:28,f:16,c:32,ingredients:["225 g firm tofu","60 g spinach","75 g bell peppers","1 tbsp olive oil","2 slices whole wheat toast"],intFlags:[false,false,false,false,true],tags:["vegan","vegetarian","dairy-free"],cat:"breakfast",minS:.8,maxS:1.3},
+{id:"b10",name:"Protein Smoothie Bowl",types:["Breakfast"],cal:430,p:34,f:12,c:48,ingredients:["1 scoop whey protein","1 medium frozen banana","75 g frozen berries","1 cup almond milk","25 g granola","1 tbsp almond butter"],intFlags:[true,true,false,false,false,false],tags:["vegetarian","gluten-free"],cat:"breakfast",minS:.8,maxS:1.2},
+{id:"b11",name:"Egg & Avocado Toast",types:["Breakfast"],cal:410,p:24,f:20,c:36,ingredients:["2 large eggs","2 slices whole wheat toast","1/2 avocado","pinch salt"],intFlags:[true,true,false,false],tags:["vegetarian","dairy-free"],cat:"breakfast",minS:.8,maxS:1.2},
+{id:"b12",name:"Turkey Sausage & Eggs",types:["Breakfast"],cal:450,p:36,f:22,c:28,ingredients:["3 large eggs","2 turkey sausage links","1 medium sweet potato","1 tsp olive oil"],intFlags:[true,true,true,false],tags:["gluten-free","dairy-free"],cat:"breakfast",minS:.8,maxS:1.3},
+// LUNCHES
+{id:"l1",name:"Grilled Chicken & Rice",types:["Lunch","Dinner"],cal:520,p:42,f:12,c:56,ingredients:["170 g chicken breast","185 g cooked white rice","150 g steamed broccoli","1 tsp olive oil"],intFlags:[false,false,false,false],tags:["gluten-free","dairy-free"],cat:"lunch",minS:.7,maxS:1.4},
+{id:"l2",name:"Turkey & Sweet Potato Bowl",types:["Lunch","Dinner"],cal:500,p:38,f:14,c:54,ingredients:["170 g ground turkey 93% lean","1 medium sweet potato","150 g green beans","1 tsp olive oil"],intFlags:[false,true,false,false],tags:["gluten-free","dairy-free"],cat:"lunch",minS:.7,maxS:1.4},
+{id:"l3",name:"Salmon & Quinoa",types:["Lunch","Dinner"],cal:540,p:40,f:18,c:48,ingredients:["140 g salmon fillet","140 g cooked quinoa","150 g roasted asparagus","1 tsp olive oil","lemon juice"],intFlags:[false,false,false,false,false],tags:["gluten-free","dairy-free","pescatarian"],cat:"lunch",minS:.7,maxS:1.3},
+{id:"l4",name:"Lean Beef Stir-fry",types:["Lunch","Dinner"],cal:510,p:40,f:16,c:48,ingredients:["170 g sirloin steak strips","185 g cooked white rice","150 g mixed stir-fry vegetables","1 tbsp soy sauce","1 tsp sesame oil"],intFlags:[false,false,false,false,false],tags:["dairy-free"],cat:"lunch",minS:.7,maxS:1.4},
+{id:"l5",name:"Chicken Burrito Bowl",types:["Lunch","Dinner"],cal:550,p:42,f:14,c:58,ingredients:["170 g chicken breast","185 g cooked brown rice","85 g black beans","1/4 avocado","2 tbsp salsa","40 g corn"],intFlags:[false,false,false,false,false,false],tags:["gluten-free","dairy-free"],cat:"lunch",minS:.7,maxS:1.3},
+{id:"l6",name:"Tuna & Pasta",types:["Lunch","Dinner"],cal:480,p:38,f:10,c:56,ingredients:["140 g canned tuna in water","70 g whole wheat pasta dry","150 g cherry tomatoes","1 tbsp olive oil"],intFlags:[false,false,false,false],tags:["dairy-free","pescatarian"],cat:"lunch",minS:.7,maxS:1.4},
+{id:"l7",name:"Ground Turkey Tacos",types:["Lunch","Dinner"],cal:490,p:36,f:16,c:48,ingredients:["170 g ground turkey","3 corn tortillas","30 g shredded cheese","1/4 avocado","shredded lettuce","2 tbsp salsa"],intFlags:[false,true,false,false,false,false],tags:["gluten-free"],cat:"lunch",minS:.8,maxS:1.3},
+{id:"l8",name:"Chicken & Veggie Pasta",types:["Lunch","Dinner"],cal:530,p:40,f:12,c:60,ingredients:["140 g chicken breast","70 g whole wheat penne dry","150 g zucchini","120 g marinara sauce","1 tsp olive oil"],intFlags:[false,false,false,false,false],tags:["dairy-free"],cat:"lunch",minS:.7,maxS:1.3},
+{id:"l9",name:"Shrimp & Rice",types:["Lunch","Dinner"],cal:460,p:36,f:10,c:52,ingredients:["170 g shrimp","185 g cooked jasmine rice","150 g snap peas","1 tsp sesame oil","1 tbsp soy sauce"],intFlags:[false,false,false,false,false],tags:["gluten-free","dairy-free","pescatarian"],cat:"lunch",minS:.7,maxS:1.4},
+{id:"l10",name:"Baked Cod & Potatoes",types:["Lunch","Dinner"],cal:440,p:38,f:8,c:52,ingredients:["170 g cod fillet","1 medium red potato","150 g roasted Brussels sprouts","1 tsp olive oil","lemon"],intFlags:[false,true,false,false,false],tags:["gluten-free","dairy-free","pescatarian"],cat:"lunch",minS:.7,maxS:1.4},
+{id:"l11",name:"Chicken Caesar Wrap",types:["Lunch"],cal:480,p:38,f:16,c:40,ingredients:["140 g grilled chicken breast","1 large whole wheat tortilla","60 g romaine lettuce","2 tbsp light Caesar dressing","1 tbsp parmesan"],intFlags:[false,true,false,false,false],tags:[],cat:"lunch",minS:.8,maxS:1.2},
+{id:"l12",name:"Lentil & Rice Bowl",types:["Lunch","Dinner"],cal:460,p:26,f:8,c:68,ingredients:["180 g cooked lentils","140 g cooked brown rice","150 g roasted carrots","1 tsp olive oil","cumin"],intFlags:[false,false,false,false,false],tags:["vegan","vegetarian","gluten-free","dairy-free"],cat:"lunch",minS:.7,maxS:1.4},
+{id:"l13",name:"Chickpea & Quinoa Bowl",types:["Lunch","Dinner"],cal:470,p:24,f:14,c:60,ingredients:["170 g canned chickpeas","140 g cooked quinoa","150 g roasted red peppers","2 tbsp tahini","lemon juice"],intFlags:[false,false,false,false,false],tags:["vegan","vegetarian","gluten-free","dairy-free"],cat:"lunch",minS:.7,maxS:1.4},
+{id:"l14",name:"Tofu Stir-fry & Rice",types:["Lunch","Dinner"],cal:450,p:24,f:14,c:56,ingredients:["225 g firm tofu","185 g cooked white rice","150 g broccoli","75 g bell peppers","1 tbsp soy sauce","1 tsp sesame oil"],intFlags:[false,false,false,false,false,false],tags:["vegan","vegetarian","dairy-free"],cat:"lunch",minS:.7,maxS:1.4},
+{id:"l15",name:"Mediterranean Chicken Bowl",types:["Lunch","Dinner"],cal:510,p:40,f:16,c:48,ingredients:["170 g chicken breast","140 g cooked couscous","80 g cucumber","60 g cherry tomatoes","30 g feta cheese","1 tbsp olive oil"],intFlags:[false,false,false,false,false,false],tags:[],cat:"lunch",minS:.7,maxS:1.3},
+{id:"l16",name:"BBQ Chicken & Rice",types:["Lunch","Dinner"],cal:530,p:42,f:10,c:64,ingredients:["170 g chicken breast","2 tbsp BBQ sauce","185 g cooked white rice","150 g roasted corn","75 g coleslaw mix"],intFlags:[false,false,false,false,false],tags:["gluten-free","dairy-free"],cat:"lunch",minS:.7,maxS:1.3},
+{id:"l17",name:"Egg Fried Rice",types:["Lunch","Dinner"],cal:470,p:26,f:14,c:56,ingredients:["3 large eggs","225 g cooked jasmine rice","100 g mixed vegetables","1 tbsp soy sauce","1 tsp sesame oil"],intFlags:[true,false,false,false,false],tags:["vegetarian","dairy-free"],cat:"lunch",minS:.8,maxS:1.3},
+{id:"l18",name:"Turkey Club Wrap",types:["Lunch"],cal:460,p:36,f:14,c:42,ingredients:["115 g turkey deli slices","1 large whole wheat tortilla","2 slices turkey bacon","30 g shredded lettuce","2 slices tomato","1 tbsp mayo"],intFlags:[false,true,true,false,true,false],tags:[],cat:"lunch",minS:.8,maxS:1.2},
+// DINNERS
+{id:"d1",name:"Chicken & Roasted Vegetables",types:["Dinner"],cal:460,p:42,f:14,c:36,ingredients:["200 g chicken breast","150 g roasted sweet potato","150 g roasted broccoli","1 tsp olive oil","garlic"],intFlags:[false,false,false,false,false],tags:["gluten-free","dairy-free"],cat:"dinner",minS:.7,maxS:1.4},
+{id:"d2",name:"Baked Salmon & Asparagus",types:["Dinner"],cal:480,p:40,f:20,c:30,ingredients:["170 g salmon fillet","150 g asparagus","90 g cooked brown rice","1 tsp olive oil","lemon"],intFlags:[false,false,false,false,false],tags:["gluten-free","dairy-free","pescatarian"],cat:"dinner",minS:.7,maxS:1.3},
+{id:"d3",name:"Lean Ground Beef & Potato",types:["Dinner"],cal:520,p:40,f:16,c:50,ingredients:["170 g 93% lean ground beef","1 large baked potato","150 g steamed green beans","1 tbsp butter"],intFlags:[false,true,false,false],tags:["gluten-free"],cat:"dinner",minS:.7,maxS:1.3},
+{id:"d4",name:"Turkey Meatballs & Pasta",types:["Dinner"],cal:510,p:38,f:14,c:54,ingredients:["140 g ground turkey meatballs","70 g whole wheat spaghetti dry","120 g marinara sauce","1 tbsp parmesan"],intFlags:[false,false,false,false],tags:[],cat:"dinner",minS:.7,maxS:1.3},
+{id:"d5",name:"Chicken Thighs & Rice",types:["Dinner"],cal:540,p:38,f:18,c:52,ingredients:["170 g boneless chicken thigh","185 g cooked rice","150 g roasted zucchini","1 tsp olive oil"],intFlags:[false,false,false,false],tags:["gluten-free","dairy-free"],cat:"dinner",minS:.7,maxS:1.3},
+{id:"d6",name:"Tilapia & Black Beans",types:["Dinner"],cal:430,p:38,f:8,c:50,ingredients:["170 g tilapia fillet","85 g black beans","150 g roasted peppers and onions","140 g cooked brown rice","lime"],intFlags:[false,false,false,false,false],tags:["gluten-free","dairy-free","pescatarian"],cat:"dinner",minS:.7,maxS:1.4},
+{id:"d7",name:"Pork Tenderloin & Sweet Potato",types:["Dinner"],cal:470,p:38,f:12,c:48,ingredients:["170 g pork tenderloin","1 medium sweet potato","150 g steamed broccoli","1 tsp olive oil"],intFlags:[false,true,false,false],tags:["gluten-free","dairy-free"],cat:"dinner",minS:.7,maxS:1.3},
+{id:"d8",name:"Steak & Baked Potato",types:["Dinner"],cal:560,p:44,f:18,c:48,ingredients:["170 g sirloin steak","1 medium baked potato","150 g steamed asparagus","1 tbsp butter"],intFlags:[false,true,false,false],tags:["gluten-free"],cat:"dinner",minS:.7,maxS:1.2},
+{id:"d9",name:"Chicken Breast & Couscous",types:["Dinner"],cal:490,p:40,f:10,c:54,ingredients:["170 g chicken breast","140 g cooked couscous","100 g roasted bell peppers","60 g spinach","1 tsp olive oil"],intFlags:[false,false,false,false,false],tags:["dairy-free"],cat:"dinner",minS:.7,maxS:1.3},
+{id:"d10",name:"Black Bean & Sweet Potato Bowl",types:["Dinner"],cal:440,p:22,f:10,c:64,ingredients:["170 g black beans","1 medium sweet potato","1/2 avocado","80 g corn","2 tbsp salsa"],intFlags:[false,true,false,false,false],tags:["vegan","vegetarian","gluten-free","dairy-free"],cat:"dinner",minS:.7,maxS:1.4},
+{id:"d11",name:"Honey Garlic Chicken & Rice",types:["Dinner"],cal:530,p:40,f:12,c:60,ingredients:["170 g chicken breast","185 g cooked jasmine rice","1 tbsp honey","1 tbsp soy sauce","150 g steamed green beans"],intFlags:[false,false,false,false,false],tags:["dairy-free"],cat:"dinner",minS:.7,maxS:1.3},
+{id:"d12",name:"Baked Turkey Breast & Veggies",types:["Dinner"],cal:440,p:42,f:10,c:40,ingredients:["200 g turkey breast","150 g roasted carrots","150 g roasted broccoli","1 tsp olive oil","thyme"],intFlags:[false,false,false,false,false],tags:["gluten-free","dairy-free"],cat:"dinner",minS:.7,maxS:1.4},
+{id:"d13",name:"Shrimp Tacos",types:["Dinner"],cal:460,p:34,f:14,c:48,ingredients:["170 g shrimp","3 corn tortillas","60 g shredded cabbage","1/4 avocado","2 tbsp salsa","lime"],intFlags:[false,true,false,false,false,false],tags:["gluten-free","dairy-free","pescatarian"],cat:"dinner",minS:.8,maxS:1.3},
+{id:"d14",name:"Beef & Broccoli",types:["Dinner"],cal:500,p:40,f:16,c:46,ingredients:["170 g sirloin steak strips","200 g broccoli","185 g cooked white rice","1 tbsp soy sauce","1 tsp sesame oil"],intFlags:[false,false,false,false,false],tags:["dairy-free"],cat:"dinner",minS:.7,maxS:1.3},
+{id:"d15",name:"Lemon Herb Cod & Potatoes",types:["Dinner"],cal:420,p:38,f:8,c:48,ingredients:["170 g cod fillet","200 g roasted baby potatoes","150 g green beans","1 tsp olive oil","lemon","dill"],intFlags:[false,false,false,false,false,false],tags:["gluten-free","dairy-free","pescatarian"],cat:"dinner",minS:.7,maxS:1.4},
+// SNACKS
+{id:"s1",name:"Protein Shake",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:180,p:25,f:3,c:12,ingredients:["1 scoop whey protein","1 cup water","1 medium banana"],intFlags:[true,false,true],tags:["vegetarian","gluten-free"],cat:"snack",minS:.9,maxS:1.1},
+{id:"s2",name:"Greek Yogurt & Almonds",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:220,p:20,f:10,c:14,ingredients:["180 g nonfat Greek yogurt","20 g almonds","1 tsp honey"],intFlags:[false,false,false],tags:["vegetarian","gluten-free"],cat:"snack",minS:.8,maxS:1.4},
+{id:"s3",name:"Rice Cakes & Peanut Butter",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:240,p:10,f:12,c:24,ingredients:["2 plain rice cakes","2 tbsp peanut butter","1 medium banana"],intFlags:[true,false,true],tags:["vegan","vegetarian","gluten-free","dairy-free"],cat:"snack",minS:.8,maxS:1.2},
+{id:"s4",name:"Cottage Cheese & Berries",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:180,p:22,f:4,c:16,ingredients:["225 g low-fat cottage cheese","75 g mixed berries"],intFlags:[false,false],tags:["vegetarian","gluten-free"],cat:"snack",minS:.8,maxS:1.4},
+{id:"s5",name:"Hard Boiled Eggs",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:210,p:18,f:14,c:2,ingredients:["3 large hard-boiled eggs","pinch salt"],intFlags:[true,false],tags:["vegetarian","gluten-free","dairy-free","keto"],cat:"snack",minS:.7,maxS:1.0},
+{id:"s6",name:"Turkey & Cheese Roll-ups",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:200,p:22,f:10,c:4,ingredients:["115 g turkey deli slices","2 slices Swiss cheese","1 tsp mustard"],intFlags:[false,true,false],tags:["gluten-free","keto"],cat:"snack",minS:.8,maxS:1.2},
+{id:"s7",name:"Protein Bar",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:230,p:20,f:8,c:24,ingredients:["1 protein bar (Quest, ONE, or Barebells)"],intFlags:[true],tags:["vegetarian","gluten-free"],cat:"snack",minS:1,maxS:1},
+{id:"s8",name:"Apple & Almond Butter",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:250,p:6,f:14,c:28,ingredients:["1 medium apple","2 tbsp almond butter"],intFlags:[true,false],tags:["vegan","vegetarian","gluten-free","dairy-free"],cat:"snack",minS:.8,maxS:1.2},
+{id:"s9",name:"Tuna & Crackers",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:220,p:24,f:6,c:18,ingredients:["85 g canned tuna in water","8 whole wheat crackers","1 tsp mustard"],intFlags:[false,true,false],tags:["dairy-free","pescatarian"],cat:"snack",minS:.8,maxS:1.2},
+{id:"s10",name:"Edamame",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:190,p:18,f:8,c:14,ingredients:["225 g shelled edamame","pinch sea salt"],intFlags:[false,false],tags:["vegan","vegetarian","gluten-free","dairy-free"],cat:"snack",minS:.7,maxS:1.4},
+{id:"s11",name:"Trail Mix",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:260,p:8,f:16,c:22,ingredients:["30 g mixed nuts","20 g dark chocolate chips","20 g dried cranberries"],intFlags:[false,false,false],tags:["vegan","vegetarian","gluten-free","dairy-free"],cat:"snack",minS:.8,maxS:1.2},
+{id:"s12",name:"Beef Jerky & Banana",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:230,p:20,f:4,c:30,ingredients:["55 g beef jerky","1 medium banana"],intFlags:[false,true],tags:["gluten-free","dairy-free"],cat:"snack",minS:.8,maxS:1.1},
+{id:"s13",name:"Hummus & Veggies",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:200,p:8,f:10,c:22,ingredients:["80 g hummus","100 g carrot and celery sticks","5 whole wheat pita chips"],intFlags:[false,false,true],tags:["vegan","vegetarian","dairy-free"],cat:"snack",minS:.8,maxS:1.3},
+{id:"s14",name:"Casein Shake",types:["Snack","Evening Snack"],cal:160,p:24,f:2,c:8,ingredients:["1 scoop casein protein","1 cup water"],intFlags:[true,false],tags:["vegetarian","gluten-free"],cat:"snack",minS:.9,maxS:1.1},
+{id:"s15",name:"String Cheese & Almonds",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:200,p:14,f:14,c:6,ingredients:["2 string cheese sticks","20 g almonds"],intFlags:[true,false],tags:["vegetarian","gluten-free"],cat:"snack",minS:.8,maxS:1.2},
+{id:"s16",name:"PB & Banana Wrap",types:["Snack","Mid-Morning Snack","Afternoon Snack","Evening Snack"],cal:310,p:12,f:14,c:38,ingredients:["1 small whole wheat tortilla","2 tbsp peanut butter","1 medium banana"],intFlags:[true,false,true],tags:["vegan","vegetarian","dairy-free"],cat:"snack",minS:.9,maxS:1.1},
+];
+
+/* ═══════════════ CONSTANTS ═══════════════ */
+const ACTIVITY=[{l:"Sedentary",d:"Desk job, minimal exercise",f:1.2},{l:"Lightly Active",d:"1-3 days/week",f:1.375},{l:"Moderately Active",d:"3-5 days/week",f:1.55},{l:"Very Active",d:"6-7 days/week",f:1.725},{l:"Extremely Active",d:"2x daily or physical job",f:1.9}];
+const GOALS=[{l:"Fat Loss",icon:"◇",adj:-.12,d:"~12% caloric deficit"},{l:"Maintain",icon:"○",adj:0,d:"Maintenance calories"},{l:"Build Muscle",icon:"△",adj:.08,d:"~8% caloric surplus"}];
+const DIET_OPTS=["No restrictions","Vegetarian","Vegan","Gluten-free","Dairy-free","Keto","Pescatarian"];
+const CAL_DISTS=[{l:"Even Split",k:"even",d:"Calories spread equally across all meals."},{l:"Bigger Before Noon",k:"front",d:"Heavier breakfast and morning meals, lighter later."},{l:"Bigger Afternoon",k:"back",d:"Lighter morning, heavier lunch and dinner."}];
+const VAR_LVLS=[{l:"Consistent",k:"consistent",d:"Same meals each day. Minimal groceries."},{l:"Moderate",k:"moderate",d:"Some repeats with variety across the week."},{l:"High Variety",k:"varied",d:"Different meals each day. More ingredients."}];
+
+/* ═══════════════ CALC ═══════════════ */
+function calcTDEE(age,sex,h,w,af){return Math.round((sex==="male"?10*w+6.25*h-5*age+5:10*w+6.25*h-5*age-161)*af);}
+function calcMacros(w,tc){const p=Math.round(w*2.2),fc=Math.round(tc*.25),f=Math.round(fc/9),c=Math.round((tc-p*4-fc)/4);return{protein:p,fat:f,carbs:c};}
+function toKg(v,u){return u==="kg"?+v:Math.round(+v*.453592*10)/10;}
+function toCm(ft,i,cm,u){return u==="metric"?+cm:Math.round((+ft*12+ +(i||0))*2.54);}
+
+// 3=B/L/D, 4=B/L/D/Snack, 5+=Meal 1..N
+function getMealLabels(n){
+  if(n===3)return["Breakfast","Lunch","Dinner"];
+  if(n===4)return["Breakfast","Lunch","Dinner","Snack"];
+  return Array.from({length:n},(_,i)=>"Meal "+(i+1));
+}
+// Internal types for DB matching when using Meal 1..N
+function getSlotType(label,idx,total){
+  if(label.startsWith("Meal")){
+    if(idx===0)return"Breakfast";
+    if(idx===total-1)return"Dinner";
+    if(total>=5&&(idx===1||idx===3))return"Snack";
+    return"Lunch";
+  }
+  return label;
+}
+
+function getDist(labels,d){const n=labels.length;if(d==="even")return labels.map(()=>1/n);const am=(l,i)=>l==="Breakfast"||l==="Mid-Morning Snack"||(l.startsWith("Meal")&&i<Math.ceil(n/2));const ac=labels.filter((l,i)=>am(l,i)).length||1,pc=labels.filter((l,i)=>!am(l,i)).length||1;return d==="front"?labels.map((l,i)=>am(l,i)?.6/ac:.4/pc):labels.map((l,i)=>am(l,i)?.3/ac:.7/pc);}
+function shuffle(a){const r=[...a];for(let i=r.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[r[i],r[j]]=[r[j],r[i]];}return r;}
+function filterPool(diet){return diet.includes("No restrictions")?DB:DB.filter(m=>diet.every(d=>m.tags.includes(d.toLowerCase())));}
+
+function scaledMeal(m,scale){const s=Math.max(m.minS,Math.min(m.maxS,scale));return{name:m.name,type:"",ingredients:scaleIng(m.ingredients,m.intFlags,s),calories:Math.round(m.cal*s),protein:Math.round(m.p*s),fat:Math.round(m.f*s),carbs:Math.round(m.c*s),_id:m.id,_scale:s,_ref:m};}
+
+function pickMeal(pool,tCal,type,usedDay,usedAll,vr){
+  let c=pool.filter(m=>m.types.includes(type)&&!usedDay.has(m.id));
+  if(!c.length)c=pool.filter(m=>m.cat===(type.includes("Snack")||type==="Snack"?"snack":"lunch")&&!usedDay.has(m.id));
+  if(!c.length)c=pool.filter(m=>!usedDay.has(m.id));
+  if(!c.length)c=pool;c=shuffle(c);
+  let best=null,bs=Infinity;
+  for(const m of c){const id=tCal/m.cal;if(id<m.minS||id>m.maxS)continue;let sc=Math.abs(m.cal*id-tCal);if(vr==="varied"&&usedAll.has(m.id))sc+=300;if(vr==="moderate"&&usedAll.has(m.id))sc+=80;if(sc<bs){bs=sc;best=m;}}
+  if(!best)for(const m of c){const s=Math.max(m.minS,Math.min(m.maxS,tCal/m.cal));const sc=Math.abs(m.cal*s-tCal);if(sc<bs){bs=sc;best=m;}}
+  return best||c[0]||pool[0];
+}
+
+function buildDay(pool,tCal,macros,labels,dist,vr,usedAll){
+  const d=getDist(labels,dist),usedDay=new Set();
+  const picks=labels.map((lb,i)=>{
+    const sc=Math.round(tCal*d[i]);
+    const slotType=getSlotType(lb,i,labels.length);
+    const m=pickMeal(pool,sc,slotType,usedDay,usedAll,vr);
+    usedDay.add(m.id);usedAll.add(m.id);
+    return{meal:m,scale:Math.max(m.minS,Math.min(m.maxS,sc/m.cal)),label:lb};
+  });
+  let tot=picks.reduce((s,p)=>s+Math.round(p.meal.cal*p.scale),0);const gap=tCal-tot;
+  if(Math.abs(gap)>15){let bf=null,br=0;for(const p of picks){const r=gap>0?(p.meal.maxS-p.scale)*p.meal.cal:(p.scale-p.meal.minS)*p.meal.cal;if(r>br){br=r;bf=p;}}if(bf)bf.scale=Math.max(bf.meal.minS,Math.min(bf.meal.maxS,bf.scale+gap/bf.meal.cal));}
+  const meals=picks.map(p=>{const sm=scaledMeal(p.meal,p.scale);sm.type=p.label;return sm;});
+  const totals=meals.reduce((t,m)=>({calories:t.calories+m.calories,protein:t.protein+m.protein,fat:t.fat+m.fat,carbs:t.carbs+m.carbs}),{calories:0,protein:0,fat:0,carbs:0});
+  return{meals,totals};
+}
+
+function genPlan(tCal,macros,labels,cd,vr,diet){
+  const pool=filterPool(diet);if(!pool.length)return null;
+  const days=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"],ua=new Set();
+  if(vr==="consistent"){const{meals,totals}=buildDay(pool,tCal,macros,labels,cd,"consistent",ua);return days.map(d=>({day:d,meals:meals.map(m=>({...m})),totals:{...totals}}));}
+  return days.map(d=>{const{meals,totals}=buildDay(pool,tCal,macros,labels,cd,vr,ua);return{day:d,meals,totals};});
+}
+
+function swapMealInPlan(plan,di,mi,pool,tCal,labels){
+  const day=plan[di],meal=day.meals[mi];
+  const usedDay=new Set(day.meals.map(m=>m._id).filter((_,i)=>i!==mi));
+  const slotType=getSlotType(meal.type,mi,labels.length);
+  let opts=pool.filter(m=>m.types.includes(slotType)&&m.id!==meal._id&&!usedDay.has(m.id));
+  if(!opts.length)opts=pool.filter(m=>m.cat===(slotType.includes("Snack")?"snack":"lunch")&&m.id!==meal._id);
+  if(!opts.length)return plan;
+  const pick=opts[Math.floor(Math.random()*Math.min(3,opts.length))];
+  const sm=scaledMeal(pick,meal.calories/pick.cal);sm.type=meal.type;
+  const nm=[...day.meals];nm[mi]=sm;
+  let tot=nm.reduce((s,m)=>s+m.calories,0);const gap=tCal-tot;
+  if(Math.abs(gap)>15){const adj=sm._scale+gap/pick.cal;const ns=Math.max(pick.minS,Math.min(pick.maxS,adj));const c=scaledMeal(pick,ns);c.type=meal.type;nm[mi]=c;}
+  const totals=nm.reduce((t,m)=>({calories:t.calories+m.calories,protein:t.protein+m.protein,fat:t.fat+m.fat,carbs:t.carbs+m.carbs}),{calories:0,protein:0,fat:0,carbs:0});
+  const np=[...plan];np[di]={...day,meals:nm,totals};return np;
+}
+
+function makeGrocery(plan){
+  const agg={};
+  plan.forEach(d=>d.meals.forEach(m=>m.ingredients.forEach(ing=>{const p=parseIng(ing);const key=(p.unit?p.unit+" ":"")+(p.name||ing).toLowerCase();if(!agg[key])agg[key]={qty:0,unit:p.unit,name:p.name||ing};agg[key].qty+=p.qty;})));
+  const cats={"Protein":[],"Grains & Carbs":[],"Fruits & Vegetables":[],"Dairy":[],"Fats & Oils":[],"Pantry":[],"Other":[]};
+  const pw=["chicken","turkey","beef","salmon","tuna","shrimp","cod","tilapia","pork","egg","tofu","jerky","whey","casein","protein bar","protein","deli","sausage","meatball","bacon"];
+  const gw=["rice","oat","pasta","bread","tortilla","quinoa","couscous","crackers","rice cake","pita","granola","lentil","bean","chickpea","black bean","corn tortilla"];
+  const fv=["banana","berry","berries","blueberry","blueberries","strawberry","strawberries","apple","pineapple","tomato","tomatoes","broccoli","asparagus","spinach","pepper","peppers","zucchini","carrot","carrots","celery","lettuce","onion","onions","potato","potatoes","sweet potato","green bean","green beans","snap pea","snap peas","brussels","sprouts","edamame","avocado","cranberry","cranberries","fruit","cabbage","corn","cucumber","coleslaw","mixed berries","frozen berries","mixed vegetables","roasted corn","stir-fry vegetables"];
+  const dw=["yogurt","cheese","cottage","milk","butter","parmesan","feta","string cheese"];
+  const fw=["olive oil","coconut oil","sesame oil","peanut butter","almond butter","tahini","almonds","walnuts","nuts","chocolate chip","chocolate chips","hummus","mayo"];
+  const py=["salt","pepper","garlic","cinnamon","cumin","thyme","rosemary","dill","basil","cilantro","ginger","italian","turmeric","lemon","lime","honey","soy sauce","salsa","mustard","marinara","cooking spray","dressing","water","sea salt","dash","pinch","bbq","red pepper","juice"];
+  Object.values(agg).forEach(({qty,unit,name})=>{
+    const k=name.toLowerCase();let display;
+    if(qty>0){
+      if(unit==="g"){const q=qty>=50?Math.round(qty/5)*5:Math.round(qty);display=q>=1000?`${(q/1000).toFixed(1)} kg ${name}`:`${q} g ${name}`;}
+      else if(unit)display=`${fmtQty(qty,false,unit)} ${unit} ${name}`;
+      else display=`${fmtQty(qty,false,"")} ${name}`;
+    }else display=name;
+    if(pw.some(w=>k.includes(w)))cats["Protein"].push(display);
+    else if(fv.some(w=>k.includes(w)))cats["Fruits & Vegetables"].push(display);
+    else if(gw.some(w=>k.includes(w)))cats["Grains & Carbs"].push(display);
+    else if(dw.some(w=>k.includes(w)))cats["Dairy"].push(display);
+    else if(fw.some(w=>k.includes(w)))cats["Fats & Oils"].push(display);
+    else if(py.some(w=>k.includes(w)))cats["Pantry"].push(display);
+    else cats["Other"].push(display);
+  });
+  return cats;
+}
+
+/* ═══════════════ THEME ═══════════════ */
+const C={bg:"#f4f1ec",card:"#ffffff",ac:"#3d7a5f",al:"#e8f2ec",tx:"#1e2a24",ts:"#4a5d52",tm:"#7a8c82",bd:"#d4cfc7",bl:"#e8e4dc",pc:"#3d7a5f",fc:"#b8893a",cc:"#4a7a9e"};
+const F={d:"'Cormorant Garamond',serif",b:"'Nunito Sans',sans-serif",m:"'JetBrains Mono',monospace"};
+
+/* ═══════════════ UI ═══════════════ */
+function Chip({sel,onClick,children,style}){return<div onClick={onClick}style={{padding:"10px 16px",borderRadius:10,cursor:"pointer",border:sel?`2px solid ${C.ac}`:`2px solid ${C.bd}`,background:sel?C.al:C.card,color:sel?C.ac:C.ts,transition:"all .2s",fontFamily:F.b,fontSize:13,fontWeight:sel?700:500,...style}}>{children}</div>}
+function OCard({sel,onClick,children,style}){return<div onClick={onClick}style={{padding:"14px 16px",borderRadius:12,cursor:"pointer",border:sel?`2px solid ${C.ac}`:`2px solid ${C.bd}`,background:sel?C.al:C.card,transition:"all .2s",...style}}>{children}</div>}
+function Btn({onClick,dis,children,v,style}){const pr=v||"primary";const base={padding:"13px 28px",borderRadius:10,border:"none",cursor:dis?"not-allowed":"pointer",fontFamily:F.m,fontSize:13,fontWeight:600,letterSpacing:.4,transition:"all .2s",opacity:dis?.4:1};const s=pr==="primary"?{...base,background:C.ac,color:"#fff"}:{...base,background:C.card,color:C.ac,border:`2px solid ${C.bd}`};return<button onClick={dis?undefined:onClick}style={{...s,...style}}>{children}</button>}
+function Inp({label,value,onChange,suffix,min,max,step:st,style}){
+  return<div style={{display:"flex",flexDirection:"column",gap:5,...style}}>
+    {label&&<label style={{fontSize:11,fontFamily:F.m,color:C.tm,letterSpacing:1,textTransform:"uppercase",fontWeight:600}}>{label}</label>}
+    <div style={{display:"flex",alignItems:"center",gap:0,border:`2px solid ${C.bd}`,borderRadius:8,background:C.card,overflow:"hidden"}}
+      onFocus={e=>e.currentTarget.style.borderColor=C.ac}
+      onBlur={e=>e.currentTarget.style.borderColor=C.bd}>
+      <input type="number"value={value}onChange={e=>onChange(e.target.value)}
+        min={min}max={max}step={st||1}
+        style={{flex:1,padding:"11px 12px",border:"none",background:"transparent",fontFamily:F.b,fontSize:15,color:C.tx,outline:"none",width:"100%",minWidth:0}}/>
+      {suffix&&<span style={{fontFamily:F.m,fontSize:11,color:C.tm,fontWeight:600,paddingRight:8,whiteSpace:"nowrap"}}>{suffix}</span>}
+    </div>
+  </div>
+}
+function Tog({options,value,onChange}){return<div style={{display:"inline-flex",background:C.bg,borderRadius:8,padding:3,border:`1px solid ${C.bd}`}}>{options.map(o=><div key={o.v}onClick={()=>onChange(o.v)}style={{padding:"6px 14px",borderRadius:6,cursor:"pointer",background:value===o.v?C.ac:"transparent",color:value===o.v?"#fff":C.tm,fontFamily:F.m,fontSize:11,fontWeight:600,transition:"all .2s"}}>{o.l}</div>)}</div>}
+function Dots({c,t}){return<div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:24}}>{Array.from({length:t}).map((_,i)=><div key={i}style={{height:3,borderRadius:2,transition:"all .3s",width:i===c?32:12,background:i<=c?C.ac:C.bd}}/>)}</div>}
+function MBar({label,value,color}){return<div style={{textAlign:"center"}}><div style={{fontFamily:F.d,fontSize:26,fontWeight:700,color:C.tx,lineHeight:1}}>{value}</div><div style={{fontFamily:F.m,fontSize:9,color,letterSpacing:1,textTransform:"uppercase",marginTop:4,fontWeight:600}}>{label}</div></div>}
+function SLbl({children}){return<label style={{fontSize:11,fontFamily:F.m,color:C.tm,letterSpacing:1,textTransform:"uppercase",display:"block",marginBottom:8,fontWeight:600}}>{children}</label>}
+
+/* ═══════════════ APP ═══════════════ */
+function App(){
+  const[step,setStep]=useState(0);const[units,setUnits]=useState("imperial");
+  const[age,setAge]=useState("");const[sex,setSex]=useState("");
+  const[hFt,setHFt]=useState("");const[hIn,setHIn]=useState("");const[hCm,setHCm]=useState("");
+  const[wt,setWt]=useState("");const[agreed,setAgreed]=useState(false);
+  const[actI,setActI]=useState(null);const[goalI,setGoalI]=useState(null);
+  const[diet,setDiet]=useState([]);const[mc,setMc]=useState(4);
+  const[cd,setCd]=useState("even");const[vr,setVr]=useState("moderate");
+  const[phase,setPhase]=useState("onboarding");
+  const[plan,setPlan]=useState(null);const[grocery,setGrocery]=useState(null);
+  const[selDay,setSelDay]=useState(0);const[tab,setTab]=useState("meals");
+
+  const hCmVal=toCm(hFt,hIn,hCm,units==="imperial"?"imperial":"metric");
+  const wKg=toKg(wt,units==="imperial"?"lb":"kg");
+  const tdee=actI!==null?calcTDEE(+age,sex,hCmVal,wKg,ACTIVITY[actI].f):0;
+  const tCal=Math.round(tdee*(1+(goalI!==null?GOALS[goalI].adj:0)));
+  const macros=calcMacros(wKg,tCal);
+  const labels=getMealLabels(mc);
+  const pool=filterPool(diet);
+
+  const canAdv=()=>{if(step===0){if(!age||!sex||!wt||!agreed)return false;return units==="imperial"?!!hFt:!!hCm;}if(step===1)return actI!==null&&goalI!==null;return diet.length>0;};
+  const togDiet=o=>{if(o==="No restrictions"){setDiet(diet.includes(o)?[]:[o]);return;}let n=diet.filter(d=>d!=="No restrictions");n=n.includes(o)?n.filter(d=>d!==o):[...n,o];setDiet(n);};
+  const generate=()=>{const p=genPlan(tCal,macros,labels,cd,vr,diet);if(!p){alert("Not enough meals match your dietary filters.");return;}setPlan(p);setGrocery(makeGrocery(p));setSelDay(0);setTab("meals");setPhase("results");};
+  const doSwap=(di,mi)=>{const np=swapMealInPlan(plan,di,mi,pool,tCal,labels);setPlan(np);setGrocery(makeGrocery(np));};
+
+  const exportTxt=()=>{if(!plan)return;let t=`MINDFULWILL MEAL PLAN\n${"=".repeat(52)}\n\nGoal: ${GOALS[goalI].l}  |  Calories: ${tCal} kcal\nProtein: ${macros.protein}g  |  Fat: ${macros.fat}g  |  Carbs: ${macros.carbs}g\n${"=".repeat(52)}\n`;plan.forEach(d=>{t+=`\n${d.day.toUpperCase()}\n${"-".repeat(40)}\n`;d.meals.forEach(m=>{t+=`\n  ${m.type}: ${m.name}\n  ${m.calories} kcal | P: ${m.protein}g | F: ${m.fat}g | C: ${m.carbs}g\n`;m.ingredients.forEach(i=>{t+=`    - ${i}\n`;});});t+=`\n  TOTALS: ${d.totals.calories} kcal | P: ${d.totals.protein}g | F: ${d.totals.fat}g | C: ${d.totals.carbs}g\n`;});if(grocery){t+=`\n\n${"=".repeat(52)}\nGROCERY LIST\n${"=".repeat(52)}\n`;Object.entries(grocery).forEach(([c,items])=>{if(items.length){t+=`\n${c}:\n`;items.forEach(i=>{t+=`  - ${i}\n`;});}});}const b=new Blob([t],{type:"text/plain"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download="mindfulwill-meal-plan.txt";a.click();URL.revokeObjectURL(u);};
+  const exportCSV=()=>{if(!plan)return;let csv="Day,Meal Type,Meal Name,Calories,Protein (g),Fat (g),Carbs (g),Ingredients\n";plan.forEach(d=>d.meals.forEach(m=>{csv+=`${d.day},${m.type},"${m.name}",${m.calories},${m.protein},${m.fat},${m.carbs},"${m.ingredients.join("; ")}"\n`;}));const b=new Blob([csv],{type:"text/csv"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download="mindfulwill-meal-plan.csv";a.click();URL.revokeObjectURL(u);};
+
+  const shell={minHeight:"100vh",background:C.bg,color:C.tx,fontFamily:F.b,padding:"20px 16px"};
+  const cBox={maxWidth:540,margin:"0 auto",padding:"28px 24px",background:C.card,borderRadius:16,border:`1px solid ${C.bd}`,boxShadow:"0 2px 16px rgba(0,0,0,.04)"};
+  const brand=<div style={{textAlign:"center",marginBottom:6}}><div style={{fontFamily:F.d,fontSize:32,fontWeight:700,color:C.tx,letterSpacing:-.5,lineHeight:1}}>mindful<span style={{color:C.ac}}>will</span></div><div style={{fontFamily:F.m,fontSize:9,color:C.tm,letterSpacing:2,textTransform:"uppercase",marginTop:6,fontWeight:600}}>meal planner</div></div>;
+  const footer=<div style={{textAlign:"center",marginTop:24,fontFamily:F.m,fontSize:9,color:C.tm,letterSpacing:1}}>built with intention by mindfulwill</div>;
+
+  if(phase==="results"&&plan){
+    const day=plan[selDay];
+    return<div style={shell}><div style={{maxWidth:620,margin:"0 auto"}}>{brand}
+      <div style={{display:"flex",justifyContent:"center",gap:24,margin:"18px 0 14px",padding:"14px 0",borderTop:`1px solid ${C.bd}`,borderBottom:`1px solid ${C.bd}`}}><MBar label="Target Cal"value={tCal}color={C.ac}/><MBar label="Protein"value={macros.protein+"g"}color={C.pc}/><MBar label="Fat"value={macros.fat+"g"}color={C.fc}/><MBar label="Carbs"value={macros.carbs+"g"}color={C.cc}/></div>
+      <div style={{display:"flex",justifyContent:"center",marginBottom:14}}><Tog options={[{l:"Meals",v:"meals"},{l:"Grocery List",v:"grocery"}]}value={tab}onChange={setTab}/></div>
+      {tab==="meals"?<React.Fragment>
+        <div style={{display:"flex",gap:5,marginBottom:14,justifyContent:"center",flexWrap:"wrap"}}>{plan.map((d,i)=><div key={d.day}onClick={()=>setSelDay(i)}style={{padding:"7px 13px",borderRadius:8,cursor:"pointer",background:i===selDay?C.ac:C.card,color:i===selDay?"#fff":C.ts,border:`1.5px solid ${i===selDay?C.ac:C.bd}`,fontFamily:F.m,fontSize:11,fontWeight:600,transition:"all .2s"}}>{d.day.slice(0,3)}</div>)}</div>
+        {day&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {day.meals.map((meal,mi)=><div key={mi+meal._id}style={{background:C.card,borderRadius:12,padding:"16px 18px",border:`1px solid ${C.bl}`,boxShadow:"0 1px 6px rgba(0,0,0,.03)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+              <div><div style={{fontFamily:F.m,fontSize:9,color:C.tm,letterSpacing:1.2,textTransform:"uppercase",fontWeight:600}}>{meal.type}</div><div style={{fontFamily:F.b,fontSize:15,fontWeight:700,color:C.tx,marginTop:2}}>{meal.name}</div></div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <span style={{fontFamily:F.m,fontSize:12,fontWeight:600,color:C.ac,background:C.al,padding:"4px 10px",borderRadius:6}}>{meal.calories} kcal</span>
+                <span onClick={()=>doSwap(selDay,mi)}style={{fontFamily:F.m,fontSize:10,color:C.ac,cursor:"pointer",padding:"4px 8px",borderRadius:6,border:`1px solid ${C.bd}`,fontWeight:600}}title="Swap meal">↻</span>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:14,marginBottom:10}}>{[{l:"P",v:meal.protein,c:C.pc},{l:"F",v:meal.fat,c:C.fc},{l:"C",v:meal.carbs,c:C.cc}].map(x=><span key={x.l}style={{fontFamily:F.m,fontSize:11,color:x.c,fontWeight:600}}>{x.v}g {x.l}</span>)}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:3}}>{meal.ingredients.map((ing,j)=><div key={j}style={{fontFamily:F.b,fontSize:13,color:C.ts,lineHeight:1.5,paddingLeft:10,borderLeft:`2px solid ${C.bl}`}}>{ing}</div>)}</div>
+          </div>)}
+          <div style={{padding:"12px 18px",borderRadius:10,background:C.al,border:`1px solid ${C.ac}30`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}><span style={{fontFamily:F.m,fontSize:11,fontWeight:700,color:C.ac}}>{day.day} Totals</span><div style={{display:"flex",gap:14}}>{[{l:"Cal",v:day.totals.calories},{l:"P",v:day.totals.protein+"g"},{l:"F",v:day.totals.fat+"g"},{l:"C",v:day.totals.carbs+"g"}].map(t=><span key={t.l}style={{fontFamily:F.m,fontSize:11,color:C.tx,fontWeight:600}}>{t.l}: {t.v}</span>)}</div></div>
+        </div>}
+      </React.Fragment>:
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>{grocery&&Object.entries(grocery).map(([cat,items])=>{if(!items.length)return null;return<div key={cat}style={{background:C.card,borderRadius:12,padding:"16px 18px",border:`1px solid ${C.bl}`,boxShadow:"0 1px 6px rgba(0,0,0,.03)"}}><div style={{fontFamily:F.m,fontSize:10,color:C.ac,letterSpacing:1.2,textTransform:"uppercase",marginBottom:10,fontWeight:700}}>{cat}</div>{items.map((it,i)=><div key={i}style={{fontFamily:F.b,fontSize:13,color:C.ts,padding:"6px 0",borderBottom:i<items.length-1?`1px solid ${C.bl}`:"none",lineHeight:1.4}}>{it}</div>)}</div>})}</div>
+      }
+      <div style={{display:"flex",gap:8,marginTop:18,justifyContent:"center",flexWrap:"wrap"}}>
+        <Btn onClick={exportTxt}v="secondary"style={{fontSize:11,padding:"10px 18px"}}>Export .txt</Btn>
+        <Btn onClick={exportCSV}v="secondary"style={{fontSize:11,padding:"10px 18px"}}>Export .csv</Btn>
+        <Btn onClick={generate}v="secondary"style={{fontSize:11,padding:"10px 18px"}}>Regenerate</Btn>
+        <Btn onClick={()=>{setPhase("onboarding");setStep(0);setPlan(null);setGrocery(null);setSelDay(0);setTab("meals");}}v="secondary"style={{fontSize:11,padding:"10px 18px"}}>Start Over</Btn>
+      </div>{footer}
+    </div></div>;
+  }
+
+  return<div style={shell}><div style={cBox}>{brand}<div style={{height:16}}/><Dots c={step}t={3}/>
+    {step===0&&<div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontFamily:F.d,fontSize:20,fontWeight:600,color:C.tx}}>About You</div><Tog options={[{l:"Imperial",v:"imperial"},{l:"Metric",v:"metric"}]}value={units}onChange={setUnits}/></div>
+      <div style={{display:"flex",gap:12}}>
+        <Inp label="Age"value={age}onChange={setAge}min={14}max={85}style={{flex:1}}/>
+        <div style={{flex:1,display:"flex",flexDirection:"column",gap:5}}><label style={{fontSize:11,fontFamily:F.m,color:C.tm,letterSpacing:1,textTransform:"uppercase",fontWeight:600}}>Sex</label><div style={{display:"flex",gap:6}}><Chip sel={sex==="male"}onClick={()=>setSex("male")}style={{flex:1,textAlign:"center"}}>Male</Chip><Chip sel={sex==="female"}onClick={()=>setSex("female")}style={{flex:1,textAlign:"center"}}>Female</Chip></div></div>
+      </div>
+      {units==="imperial"?<div style={{display:"flex",gap:12}}><Inp label="Height"value={hFt}onChange={setHFt}min={4}max={7}suffix="ft"style={{flex:1}}/><Inp label="&nbsp;"value={hIn}onChange={setHIn}min={0}max={11.9}step={0.5}suffix="in"style={{flex:1}}/></div>:<Inp label="Height"value={hCm}onChange={setHCm}min={120}max={220}suffix="cm"/>}
+      <Inp label="Weight"value={wt}onChange={setWt}min={units==="imperial"?80:35}max={units==="imperial"?400:180}suffix={units==="imperial"?"lbs":"kg"}/>
+      <div style={{padding:"14px 16px",borderRadius:10,background:"#faf8f4",border:`1px solid ${C.bl}`}}>
+        <label style={{display:"flex",gap:10,cursor:"pointer",alignItems:"flex-start"}}>
+          <input type="checkbox"checked={agreed}onChange={e=>setAgreed(e.target.checked)}style={{marginTop:3,width:16,height:16,accentColor:C.ac,cursor:"pointer",flexShrink:0}}/>
+          <span style={{fontFamily:F.b,fontSize:12,color:C.ts,lineHeight:1.5}}>
+            This tool provides general nutritional estimates and is not a substitute for professional medical advice. By continuing, you acknowledge that you are responsible for your own health decisions and should consult your doctor or a licensed healthcare provider before making dietary changes.
+          </span>
+        </label>
+      </div>
+    </div>}
+    {step===1&&<div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{fontFamily:F.d,fontSize:20,fontWeight:600,color:C.tx}}>Your Goals</div>
+      <div><SLbl>Activity Level</SLbl><div style={{display:"flex",flexDirection:"column",gap:6}}>{ACTIVITY.map((a,i)=><OCard key={a.l}sel={actI===i}onClick={()=>setActI(i)}><span style={{fontFamily:F.b,fontWeight:700,fontSize:14,color:actI===i?C.ac:C.tx}}>{a.l}</span><span style={{fontFamily:F.b,fontSize:12,color:C.tm,marginLeft:8}}>{a.d}</span></OCard>)}</div></div>
+      <div><SLbl>Goal</SLbl><div style={{display:"flex",gap:8}}>{GOALS.map((g,i)=><OCard key={g.l}sel={goalI===i}onClick={()=>setGoalI(i)}style={{flex:1,textAlign:"center",padding:"18px 10px"}}><div style={{fontFamily:F.d,fontSize:28,color:goalI===i?C.ac:C.tm,marginBottom:4}}>{g.icon}</div><div style={{fontFamily:F.b,fontWeight:700,fontSize:13,color:goalI===i?C.ac:C.tx}}>{g.l}</div><div style={{fontFamily:F.m,fontSize:9,color:C.tm,marginTop:3}}>{g.d}</div></OCard>)}</div></div>
+    </div>}
+    {step===2&&<div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{fontFamily:F.d,fontSize:20,fontWeight:600,color:C.tx}}>Preferences</div>
+      <div><SLbl>Dietary</SLbl><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{DIET_OPTS.map(o=><Chip key={o}sel={diet.includes(o)}onClick={()=>togDiet(o)}>{o}</Chip>)}</div></div>
+      <div><SLbl>Meals per Day</SLbl><div style={{display:"flex",gap:6}}>{[3,4,5,6].map(n=><Chip key={n}sel={mc===n}onClick={()=>setMc(n)}style={{flex:1,textAlign:"center"}}>{n}</Chip>)}</div></div>
+      <div><SLbl>Calorie Distribution</SLbl><div style={{display:"flex",flexDirection:"column",gap:6}}>{CAL_DISTS.map(x=><OCard key={x.k}sel={cd===x.k}onClick={()=>setCd(x.k)}><span style={{fontFamily:F.b,fontWeight:700,fontSize:13,color:cd===x.k?C.ac:C.tx}}>{x.l}</span><span style={{fontFamily:F.b,fontSize:12,color:C.tm,marginLeft:8}}>{x.d}</span></OCard>)}</div></div>
+      <div><SLbl>Meal Variety</SLbl><div style={{display:"flex",flexDirection:"column",gap:6}}>{VAR_LVLS.map(x=><OCard key={x.k}sel={vr===x.k}onClick={()=>setVr(x.k)}><span style={{fontFamily:F.b,fontWeight:700,fontSize:13,color:vr===x.k?C.ac:C.tx}}>{x.l}</span><span style={{fontFamily:F.b,fontSize:12,color:C.tm,marginLeft:8}}>{x.d}</span></OCard>)}</div></div>
+      {actI!==null&&goalI!==null&&<div style={{padding:"16px 18px",borderRadius:12,background:C.al,border:`1px solid ${C.ac}30`}}><div style={{fontFamily:F.m,fontSize:9,color:C.tm,letterSpacing:1.2,textTransform:"uppercase",marginBottom:10,fontWeight:600}}>Your Targets</div><div style={{display:"flex",justifyContent:"space-between"}}><MBar label="Calories"value={tCal}color={C.ac}/><MBar label="Protein"value={macros.protein+"g"}color={C.pc}/><MBar label="Fat"value={macros.fat+"g"}color={C.fc}/><MBar label="Carbs"value={macros.carbs+"g"}color={C.cc}/></div></div>}
+    </div>}
+    <div style={{display:"flex",justifyContent:step===0?"flex-end":"space-between",marginTop:22}}>
+      {step>0&&<Btn v="secondary"onClick={()=>setStep(step-1)}>Back</Btn>}
+      {step<2?<Btn onClick={()=>setStep(step+1)}dis={!canAdv()}>Continue</Btn>:<Btn onClick={generate}dis={!canAdv()}>Generate Plan</Btn>}
+    </div>
+  </div></div>;
+}
+ReactDOM.render(<App/>,document.getElementById("root"));
+</script>
+</body>
+</html>
