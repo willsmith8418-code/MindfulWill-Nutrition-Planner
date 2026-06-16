@@ -28,7 +28,13 @@ Build settings:
 
 Environment variables:
 
-- `GUMROAD_PRODUCT_PERMALINK` - the Gumroad product permalink used for license verification
+- `GUMROAD_PRODUCT_ID` - the Gumroad product id used for license verification
+
+Current Gumroad product id:
+
+```text
+7_7U-dRffdjG8hER_fNvMg==
+```
 
 The app calls `/.netlify/functions/verify-license`, and that function verifies the buyer's code with Gumroad.
 
@@ -42,7 +48,7 @@ For development access, enter:
 PREVIEW
 ```
 
-Real Gumroad license verification requires the Netlify Function to be running with `GUMROAD_PRODUCT_PERMALINK` configured.
+Real Gumroad license verification requires the Netlify Function to be running with `GUMROAD_PRODUCT_ID` configured.
 
 ## Important Health Note
 

@@ -1,3 +1,5 @@
+const FALLBACK_PRODUCT_ID = "7_7U-dRffdjG8hER_fNvMg==";
+
 exports.handler = async function(event) {
   if (event.httpMethod !== "POST") {
     return json(405, { valid: false, message: "Method not allowed." });
@@ -12,13 +14,12 @@ exports.handler = async function(event) {
 
   const licenseKey = String(body.licenseKey || "").trim();
   const productIds = getProductIds();
-  const productPermalinks = getProductPermalinks();
 
   if (!licenseKey) {
     return json(400, { valid: false, message: "Enter your access code." });
   }
 
-  if (!productIds.length && !productPermalinks.length) {
+  if (!productIds.length) {
     return json(500, {
       valid: false,
       message: "License verification is not configured yet."
@@ -68,50 +69,10 @@ exports.handler = async function(event) {
       return json(200, { valid: true });
     }
 
-    for (const productPermalink of productPermalinks) {
-      const form = new URLSearchParams({
-        product_permalink: productPermalink,
-        license_key: licenseKey
-      });
-
-      const response = await fetch("https://api.gumroad.com/v2/licenses/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: form.toString()
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        failures.push({
-          product: productPermalink,
-          status: response.status,
-          message: result.message || result.error || "Gumroad did not accept this code."
-        });
-        continue;
-      }
-
-      if (result.purchase && result.purchase.refunded) {
-        return json(200, {
-          valid: false,
-          message: "This purchase has been refunded, so access is no longer active."
-        });
-      }
-
-      if (result.purchase && result.purchase.chargebacked) {
-        return json(200, {
-          valid: false,
-          message: "This purchase is not currently eligible for access."
-        });
-      }
-
-      return json(200, { valid: true });
-    }
-
-    const reason = failures.map(f => `${f.product}: ${f.message}`).join(" | ");
+    const reason = failures.map(f => f.message).filter(Boolean).join(" | ");
     return json(200, {
       valid: false,
-      message: `Gumroad did not verify that code. Details: ${reason}`
+      message: reason || "That code was not accepted. Check your Gumroad license key and try again."
     });
   } catch (error) {
     return json(502, {
@@ -145,24 +106,6 @@ function getProductIds() {
 
   return [...new Set([
     ...configured,
-    "7_7U-dRffdjG8hER_fNvMg=="
-  ].filter(Boolean))];
-}
-
-function getProductPermalinks() {
-  const configured = [
-    process.env.GUMROAD_PRODUCT_PERMALINK,
-    process.env.GUMROAD_PRODUCT_PERMALINKS
-  ]
-    .filter(Boolean)
-    .flatMap(value => String(value).split(","))
-    .map(value => value.trim())
-    .filter(Boolean)
-    .flatMap(value => value.includes("=") ? [value, value.split("=").pop().trim()] : [value]);
-
-  return [...new Set([
-    ...configured,
-    "MindfulWillNutritionPlanner",
-    "vbvwwk"
+    FALLBACK_PRODUCT_ID
   ].filter(Boolean))];
 }
