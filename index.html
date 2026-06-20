@@ -22,11 +22,12 @@ const{useState}=React;
 
 const ACCESS_STORAGE_KEY="mindfulwill_access_unlocked";
 const DEV_ACCESS_CODE="PREVIEW";
+const IS_LOCAL_DEV=["localhost","127.0.0.1",""].includes(window.location.hostname);
 
 async function verifyAccessCode(code){
   const clean=code.trim();
   if(!clean)return{ok:false,message:"Enter the access code from your purchase email."};
-  if(clean.toUpperCase()===DEV_ACCESS_CODE)return{ok:true};
+  if(IS_LOCAL_DEV&&clean.toUpperCase()===DEV_ACCESS_CODE)return{ok:true};
   try{
     const res=await fetch("/.netlify/functions/verify-license",{
       method:"POST",
